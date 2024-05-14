@@ -44,9 +44,12 @@ export class Result {
         return new Result({ok: undefined, err: error});
     }
 
-    unwrap() {
-        if (this.value_or_error.ok !== undefined) return this.value_or_error.ok;
-        else return undefined;
+    isErr() {
+        return this.value_or_error.err !== undefined;
+    }
+
+    inner() {
+        return this.value_or_error;
     }
 }
 

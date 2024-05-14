@@ -1,6 +1,6 @@
-import {Option, Result} from "./utils";
+import {Option, Result} from "./utils.js";
 
-const {Firestore} = require('@google-cloud/firestore');
+import {Firestore} from '@google-cloud/firestore';
 
 // This file interfaces with the backend hosted in Firebase.
 export class Database {
@@ -8,7 +8,7 @@ export class Database {
         this.db = new Firestore();
     }
 
-    async getUser(username): Promise<Option> {
+    async getUser(username) {
         const user = await this
             .db
             .collection('users')
@@ -21,15 +21,20 @@ export class Database {
         return Option.Some(data);
     }
 
-    async createUser(username, password, salt): Promise<Result> {
+    async createUser(username, password, salt) {
         try {
-            const result = await this
+            // Check if user already exists
+            const user = await this.getUser(username);
+            if (user.getOrNull() !== null) {
+                return Result.Err('User already exists');
+            }
+            await this
                 .db
                 .collection('users')
                 .doc(username)
                 .set({
-                    password,
-                    salt
+                    password: password,
+                    salt: salt
                 });
             return Result.Ok({username, password, salt});
         }
@@ -38,7 +43,7 @@ export class Database {
         }
     }
 
-    async updateUser(username, password, salt): Promise<Result> {
+    async updateUser(username, password, salt) {
         try {
             const result = await this
                 .db
@@ -55,7 +60,7 @@ export class Database {
         }
     }
 
-    async deleteUser(username): Promise<Result> {
+    async deleteUser(username) {
         try {
             const result = await this
                 .db

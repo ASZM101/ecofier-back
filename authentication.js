@@ -1,4 +1,6 @@
-const crypto = require('crypto');
+import {Result} from "./utils.js";
+
+import crypto from "crypto";
 
 export class Authentication {
     constructor(secret) {
@@ -28,7 +30,8 @@ export class Authentication {
         const payload = {
             user: user.username,
             expiration,
-            random: crypto.randomBytes(16).toString('hex')
+            random: crypto.randomBytes(16).toString('hex'),
+            priority: user.priority
         }
         // encode into a JWT and sign
         this.tokens.push("" /*token*/);
@@ -44,9 +47,12 @@ export class Authentication {
         };
         // make sure the token hasn't expired
         if (payload.expiration < Date.now()) {
-            return false;
+            return Result.Err("Expired");
         }
         // make sure the token is in the list of valid tokens
-        return this.tokens.includes(token);
+        if (!this.tokens.includes(token)) {
+            return Result.Err("Invalid");
+        }
+        return Result.Ok({});
     }
 }

@@ -1,16 +1,28 @@
-const express = require('express');
-const {parseLoginAttempt} = require("./utils");
-const fileUpload = require('express-fileupload');
-const {Authentication} = require("./authentication");
-const {Database} = require("./database");
-const {BucketStorage} = require("./bucket");
+import express from 'express';
+import {parseLoginAttempt} from "./utils.js";
+import {Authentication} from "./authentication.js";
+import {Database} from "./database.js";
+import {Inference} from "./inference.js";
 
 const app = express();
 const port = 3000;
 
 const authenticator = new Authentication('secret');
 const database = new Database();
-const storage = new BucketStorage();
+const inference = new Inference();
+
+const generateJobId = () => {
+    const lettersOrNumbers = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+    let jobId = '';
+    for (let i = 0; i < 32; i++) {
+        jobId += lettersOrNumbers.charAt(Math.floor(Math.random() * lettersOrNumbers.length));
+    }
+    return jobId;
+}
+
+console.log(
+    "Using environment variables:\nGOOGLE_CLOUD_SECRET=" + process.env.GOOGLE_CLOUD_SECRET + "\nHF_SECRET=" + process.env.HF_SECRET + "\nJWT_SECRET=" + process.env.JWT_SECRET
+)
 
 app.use(function (req, res, next) {
     res.setHeader("Access-Control-Allow-Origin", "*");
@@ -19,13 +31,11 @@ app.use(function (req, res, next) {
     next();
 });
 app.use(express.json());
-app.use(fileUpload());
 
 app.get('/', (req, res) => {
-    res.send(`You are ${req.get}`);
+    res.send(`You are ${req.ip}`);
 });
 
-// Authentication routes
 app.post('/auth/login', async (req, res) => {
     const data = req.body;
     const attempt = parseLoginAttempt(data).getOrNull();
@@ -72,14 +82,73 @@ app.get('/auth/salt', async (req, res) => {
     res.send(salt);
 });
 
-// App routes
-app.put('/api/upload', async (req, res) => {
-    const token = req.headers.authorization;
-    // TODO: Authenticate the token
+const authenticate = (req, res) => {
+    const auth = req.headers.authorization;
+    if (!auth) {
+        res.status(401).send('Unauthorized');
+        return null;
+    }
+    const token = auth.split(' ')[1];
+    const user = authenticator.verifyToken(token);
+    if (user.isErr()) {
+        res.status(401).send('Unauthorized');
+        return null;
+    }
+    return user;
+}
 
-    // TODO: Fix upload
+app.put('/api/queue_inference', async (req, res) => {
+    const user = authenticate(req, res);
+    if (user === null) {
+        return;
+    }
+    const data = req.body;
+    const isUserPriority = user.inner().priority;
+    const jobId = generateJobId();
+    if (isUserPriority) {
+        inference.addJob(
+            {
+                blob: data.blob,
+                job_id: "normal-" + jobId,
+            }
+        )
+        res.status(200).send({job_id: "normal-" + jobId});
+    }
 });
-
+app.get('/api/status', async (req, res) => {
+    const user = authenticate(req, res);
+    if (user === null) {
+        return;
+    }
+    const data = req.query;
+    if (data['job'] === undefined) {
+        res.status(400).send('Bad request');
+        return;
+    }
+    const job = inference.getPositionInQueue(data['job']);
+    if (job === -1) {
+        res.status(404).send({
+            'err': "Job not found"
+        });
+        return;
+    }
+    if (job === 1) {
+        const jobResult = await inference.getJobResult(data['job']);
+        if (jobResult.isErr()) {
+            res.status(500).send({
+                'err': jobResult.inner()
+            });
+            return;
+        }
+        res.status(200).send(jobResult.inner());
+        return;
+    }
+    res.status(200).send(
+        {
+            position: job,
+        }
+    )
+});
 app.listen(port, () => {
     console.log(`Listening on ${port}`);
 });
